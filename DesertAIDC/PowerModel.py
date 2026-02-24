@@ -18,10 +18,14 @@ wacc = 0.075
 cap_equal = 1
 cap_rsv = cap_equal * 0.05
 
+#replace these cpaex params when optimize a specific cell
 capex_pv = 3450
 capex_we = 4200
 capex_st = 2000
 
+fom_ratio_pv = 0.005
+fom_ratio_we = 0.015
+fom_ratio_st = 0.005
 
 life_pv = 25
 life_we = 25
@@ -31,7 +35,6 @@ life_st = 15
 def get_crf(wacc, years):
     crf = (wacc * math.pow(1+wacc, years)) / (math.pow(1+wacc, years)-1)
     return round(crf,6)
-
 
 
 #this optimization is to determine the ratio of wind, solar, and storage for a target generation profile, investment cost here does not change the results
@@ -57,20 +60,17 @@ def opt_power(pv_cap,pv_cf,we_cap,we_cf):
     
     sto_eng = model.addVars(time_len,lb=0,vtype=GRB.CONTINUOUS)
     
-    model.setObjective(get_crf(wacc=wacc,years=life_pv) * pv_cap_opt + 
-                       get_crf(wacc=wacc,years=life_we) * we_cap_opt + 
-                       get_crf(wacc=wacc,years=life_st) * sto_cap +
+    model.setObjective((get_crf(wacc=wacc,years=life_pv)+fom_ratio_pv) *capex_pv * pv_cap_opt + 
+                       (get_crf(wacc=wacc,years=life_we)+fom_ratio_we) * we_cap_opt + 
+                       (get_crf(wacc=wacc,years=life_st)+fom_ratio_st) * sto_cap +
                        0.000001 * gp.quicksum([sto_dischar[t]+sto_char[t] 
                                              for t in range(time_len)]))
-    
-    #model.addConstr(pv_cap_opt <= pv_cap)
-    #model.addConstr(we_cap_opt <= we_cap)
-    #model.addConstr(sto_eng[0] == sto_eng[time_len-1])
     
     model.addConstrs(pv_output[t] + pv_rsv[t] <= pv_cap_opt * pv_cf[t] for t in range(time_len))
     model.addConstrs(we_output[t] + we_rsv[t] <= we_cap_opt * we_cf[t] for t in range(time_len))
     
     model.addConstrs(sto_char_rsv[t] <= sto_dischar[t] for t in range(time_len))
+    
     model.addConstrs(sto_dischar_rsv[t] + sto_dischar[t] 
                      <= dischar_effi * sto_cap for t in range(time_len))
     
@@ -97,6 +97,9 @@ def opt_power(pv_cap,pv_cf,we_cap,we_cf):
                                    round(1/dischar_effi,8) * sto_dischar[t]
                                    for t in range(time_len))
     
+    model.addConstrs(round(1/dischar_effi, 8) * (sto_dischar[t] + sto_dischar_rsv[t]) 
+                     <= sto_eng[(time_len+t-1) % time_len] + char_effi * (sto_char[t] - sto_char_rsv[t]) 
+                     for t in range(time_len))
     
     model.addConstrs(sto_char[t] <= sto_cap for t in range(time_len))
     
